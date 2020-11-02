@@ -22,8 +22,9 @@ class PFLocaliser(PFLocaliserBase):
 	self.ODOM_DRIFT_NOISE = 0.1
 
         # ----- Sensor model parameters
-        self.NUMBER_PREDICTED_READINGS = 200     # Number of readings to predict
+        self.NUMBER_PREDICTED_READINGS = 20     # Number of readings to predict
        
+	self.NUMBER_OF_PARTICLES = 300
 	self.scan = LaserScan
     def initialise_particle_cloud(self, initialpose):
         """
@@ -39,9 +40,10 @@ class PFLocaliser(PFLocaliserBase):
         :Return:
             | (geometry_msgs.msg.PoseArray) poses of the particles
         """
+	print(initialpose)	
 	self.particlecloud = PoseArray()
 	i = 0
-	while i < self.NUMBER_PREDICTED_READINGS:
+	while i < self.NUMBER_OF_PARTICLES:
 		temppose = Pose()
 		temppose.position.x = initialpose.pose.pose.position.x
         	temppose.position.y = initialpose.pose.pose.position.y
@@ -52,7 +54,7 @@ class PFLocaliser(PFLocaliserBase):
 	for p in self.particlecloud.poses:
 		p.position.x += self.ODOM_TRANSLATION_NOISE*random.gauss(0,5)
 		p.position.y += self.ODOM_DRIFT_NOISE*random.gauss(0,5)
-		p.orientation = rotateQuaternion(p.orientation, self.ODOM_ROTATION_NOISE*random.gauss(0,2))
+		p.orientation = rotateQuaternion(p.orientation, self.ODOM_ROTATION_NOISE*random.gauss(0,1))
 	return self.particlecloud
 
     def update_particle_cloud(self, scan):
@@ -68,10 +70,16 @@ class PFLocaliser(PFLocaliserBase):
 	likelihood =  []
 	for p in self.particlecloud.poses:
 		likelihood.append(self.sensor_model.get_weight(scan,p))
-	likelihoodnew = []
+	probability = []
+
 	for x in likelihood:
-		likelihoodnew.append(x/sum(likelihood))
-	CDF = numpy.cumsum(likelihoodnew)
+		probability.append(x/self.NUMBER_PREDICTED_READINGS)
+	probabilityAverage = sum(probability)/len(probability)
+	randomsamples = abs((1-(probabilityAverage*4))*self.NUMBER_OF_PARTICLES)
+	likelihoodnormalized = []
+	for x in likelihood:
+		likelihoodnormalized.append(x/sum(likelihood))
+	CDF = numpy.cumsum(likelihoodnormalized)
 	u = (1-random.random())/len(CDF)
 	i=0
 	j=0
@@ -88,11 +96,17 @@ class PFLocaliser(PFLocaliserBase):
 		pose = Pose()
 		pose.position.x = p.position.x + self.ODOM_TRANSLATION_NOISE*random.gauss(0,2)
 		pose.position.y = p.position.y + self.ODOM_DRIFT_NOISE*random.gauss(0,2)
-		pose.orientation = rotateQuaternion(p.orientation, self.ODOM_ROTATION_NOISE*random.gauss(0,2))
+		pose.orientation = rotateQuaternion(p.orientation, self.ODOM_ROTATION_NOISE*random.gauss(0,1))
 		particlecloudnew.poses.append(pose)
 	self.particlecloud.poses = particlecloudnew.poses	
-	print(self.particlecloud)
-
+	i=0
+	print(randomsamples)
+	while i < int(randomsamples):
+		randomindex = random.randint(0,self.NUMBER_OF_PARTICLES-1)
+		self.particlecloud.poses[randomindex].position.x = random.uniform(0,30.1)
+		self.particlecloud.poses[randomindex].position.y = random.uniform(0,30.1)
+		self.particlecloud.poses[randomindex].orientation = rotateQuaternion(self.particlecloud.poses[randomindex].orientation, random.uniform(0,6.29))
+		i=i+1
     def estimate_pose(self):
         """
         This should calculate and return an updated robot pose estimate based
